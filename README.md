@@ -1,3 +1,13 @@
+---
+title: DeepFace Análisis Facial
+emoji: 🔍
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # DeepFace — Análisis Facial
 
 Aplicación web en Python que analiza rostros en imágenes usando [DeepFace](https://github.com/serengil/deepface). Detecta edad, género, emoción y etnia estimada.
