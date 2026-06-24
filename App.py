@@ -154,6 +154,85 @@ HTML = """<!DOCTYPE html>
       display: none;
     }
 
+    /* ── Camera ── */
+    .source-divider {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 28px 0 24px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .source-divider::before,
+    .source-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--card-border);
+    }
+
+    .camera-section {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .camera-section h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+      text-align: center;
+    }
+
+    .camera-section > p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .camera-preview-wrap {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      aspect-ratio: 4 / 3;
+      max-height: 360px;
+      margin: 0 auto 16px;
+      border: 1px solid var(--card-border);
+    }
+
+    #camera-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .camera-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      padding: 20px;
+      text-align: center;
+    }
+
+    #camera-canvas { display: none; }
+
+    .camera-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+
     .actions {
       display: flex;
       gap: 12px;
@@ -362,7 +441,7 @@ HTML = """<!DOCTYPE html>
   <main>
     <div class="hero">
       <h1>Análisis Facial</h1>
-      <p>Sube una imagen para detectar rostros y obtener atributos faciales</p>
+      <p>Sube una imagen o usa tu cámara para detectar rostros y obtener atributos faciales</p>
     </div>
 
     <div class="upload-zone" id="drop-zone">
@@ -371,6 +450,23 @@ HTML = """<!DOCTYPE html>
       <p>o haz clic para seleccionar · JPG, PNG, WEBP · Máx. 16 MB</p>
       <img class="preview-thumb" id="preview-thumb" alt="Vista previa">
       <input type="file" id="file-input" accept="image/*">
+    </div>
+
+    <div class="source-divider">o usa tu cámara</div>
+
+    <div class="camera-section" id="camera-section">
+      <h3>📸 Cámara</h3>
+      <p>Activa la cámara, toma una foto y analízala igual que una imagen subida</p>
+      <div class="camera-preview-wrap">
+        <video id="camera-video" autoplay playsinline muted></video>
+        <canvas id="camera-canvas"></canvas>
+        <p class="camera-placeholder" id="camera-placeholder">Pulsa «Activar cámara» para comenzar</p>
+      </div>
+      <div class="camera-actions">
+        <button class="btn btn-secondary" id="start-camera-btn" type="button">Activar cámara</button>
+        <button class="btn btn-primary" id="capture-btn" type="button" disabled>Tomar foto</button>
+        <button class="btn btn-secondary" id="stop-camera-btn" type="button" disabled>Apagar cámara</button>
+      </div>
     </div>
 
     <div class="actions">
@@ -402,8 +498,15 @@ HTML = """<!DOCTYPE html>
     const resultsDiv  = document.getElementById('results');
     const imageContainer = document.getElementById('image-container');
     const cardsGrid   = document.getElementById('cards-grid');
+    const cameraVideo = document.getElementById('camera-video');
+    const cameraCanvas = document.getElementById('camera-canvas');
+    const cameraPlaceholder = document.getElementById('camera-placeholder');
+    const startCameraBtn = document.getElementById('start-camera-btn');
+    const captureBtn  = document.getElementById('capture-btn');
+    const stopCameraBtn = document.getElementById('stop-camera-btn');
 
     let selectedFile = null;
+    let cameraStream = null;
 
     dropZone.addEventListener('click', () => fileInput.click());
 
@@ -427,7 +530,69 @@ HTML = """<!DOCTYPE html>
       if (e.target.files[0]) handleFile(e.target.files[0]);
     });
 
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      cameraVideo.srcObject = null;
+      cameraVideo.style.display = 'none';
+      cameraPlaceholder.style.display = 'flex';
+      startCameraBtn.disabled = false;
+      captureBtn.disabled = true;
+      stopCameraBtn.disabled = true;
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showError('Tu navegador no soporta acceso a la cámara.');
+        return;
+      }
+
+      hideError();
+
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        cameraVideo.srcObject = cameraStream;
+        cameraVideo.style.display = 'block';
+        cameraPlaceholder.style.display = 'none';
+        startCameraBtn.disabled = true;
+        captureBtn.disabled = false;
+        stopCameraBtn.disabled = false;
+      } catch (err) {
+        showError('No se pudo acceder a la cámara: ' + err.message);
+        stopCamera();
+      }
+    }
+
+    function capturePhoto() {
+      if (!cameraStream || !cameraVideo.videoWidth) return;
+
+      cameraCanvas.width = cameraVideo.videoWidth;
+      cameraCanvas.height = cameraVideo.videoHeight;
+      cameraCanvas.getContext('2d').drawImage(cameraVideo, 0, 0);
+
+      cameraCanvas.toBlob(blob => {
+        if (!blob) {
+          showError('No se pudo capturar la foto.');
+          return;
+        }
+        const file = new File([blob], 'captura.jpg', { type: 'image/jpeg' });
+        fileInput.value = '';
+        handleFile(file);
+        stopCamera();
+      }, 'image/jpeg', 0.92);
+    }
+
+    startCameraBtn.addEventListener('click', startCamera);
+    captureBtn.addEventListener('click', capturePhoto);
+    stopCameraBtn.addEventListener('click', stopCamera);
+
     function handleFile(file) {
+      stopCamera();
       selectedFile = file;
       analyzeBtn.disabled = false;
       clearBtn.disabled = false;
@@ -443,6 +608,7 @@ HTML = """<!DOCTYPE html>
     }
 
     clearBtn.addEventListener('click', () => {
+      stopCamera();
       selectedFile = null;
       fileInput.value = '';
       previewThumb.style.display = 'none';
